@@ -25,11 +25,11 @@
   "scripts": {
     "start": "node ./app.js",
     "dev": "node --env-file=.env ./app.js",
-    "build": "npx -y prisma generate && rm -rf dist && tsup",
-    "db:gen": "npx -y prisma migrate dev --name init",
+    "build": "npx prisma generate && rm -rf dist && tsup",
+    "db:gen": "npx prisma migrate dev --name init",
     "db:reset": "rm -f .mi.json .bot.json prisma/app.db prisma/app.db-journal",
     "prepublish": "npm run build",
-    "postinstall": "npx -y prisma migrate dev --name hello"
+    "postinstall": "npx prisma migrate dev --name hello"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
