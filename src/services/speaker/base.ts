@@ -203,6 +203,8 @@ export class BaseSpeaker {
     } = options ?? {};
     options.hasNewMsg ??= this.checkIfHasNewMsg().hasNewMsg;
 
+    this.logger.log(`🔥 开始响应 - 文本: "${text || "无"}", 音频: ${audio ? "有" : "无"}, 流式: ${stream ? "是" : "否"}, 保持唤醒: ${keepAlive ? "是" : "否"}`);
+
     if (!text && !stream && !audio) {
       return;
     }
@@ -283,6 +285,9 @@ export class BaseSpeaker {
     } else {
       res = await this._response(options);
     }
+
+    this.logger.log(`🔥 响应完成 - 结果: ${res ? "成功" : "失败"}`);
+
     this.responding = false;
     return res;
   }
@@ -311,9 +316,13 @@ export class BaseSpeaker {
     const ttsNotXiaoai = tts !== "xiaoai" && !audio;
     playSFX = this.streamResponse && ttsNotXiaoai && playSFX;
 
+    this.logger.log(`🔥 TTS处理开始 - TTS类型: ${tts}, 文本: "${ttsText || "无"}", 音频: ${audio ? "有" : "无"}`);
+
     // 播放回复
     const play = async (args?: { tts?: string; url?: string }) => {
       this.logger.log("🔊 " + (ttsText ?? audio));
+      this.logger.log(`🔥 开始播放 - TTS文本: "${ttsText || "无"}", 音频URL: ${args?.url || "无"}, TTS参数: ${args?.tts || "无"}`);
+      
       // 播放开始提示音
       if (playSFX && this.audioBeep) {
         if (this.debug) {
@@ -324,22 +333,47 @@ export class BaseSpeaker {
       // 在播放 TTS 语音之前，先取消小爱音箱的唤醒状态，防止将 TTS 语音识别成用户指令
       if (ttsNotXiaoai) {
         await this.unWakeUp();
+        this.logger.log(`🔥 已取消唤醒状态 - 防止TTS语音被误识别`);
       }
+      
       if (args?.tts) {
         await this.MiIOT!.doAction(...this.ttsCommand, args.tts);
+        this.logger.log(`🔥 发送TTS指令 - ${JSON.stringify(this.ttsCommand)}, 内容: "${args.tts}"`);
       } else {
         await this.MiNA!.play(args);
+        this.logger.log(`🔥 播放音频 - ${JSON.stringify(args)}`);
       }
+      
       if (!this.streamResponse) {
         // 非流式响应，直接返回，不再等待设备播放完毕
         // todo 考虑后续通过 MIoT 通知事件，接收设备播放状态变更通知。
+        this.logger.log(`🔥 非流式响应 - 直接返回不等待播放完毕`);
         return;
       }
+      
       // 等待一段时间，确保本地设备状态已更新
+      this.logger.log(`🔥 等待设备状态更新 - ${this.checkTTSStatusAfter}秒`);
       await sleep(this.checkTTSStatusAfter * 1000);
+      
       // 等待回答播放完毕
       const retry = fastRetry(this, "设备状态");
+      this.logger.log(`🔥 开始检测播放状态`);
+      
+      let checkCount = 0;
+      const maxCheckCount = 60; // 最多检测60次，默认每次间隔1秒，总共60秒超时
+      const startTime = Date.now();
+      const maxWaitTime = 30000; // 最多等待30秒
+      
       while (true) {
+        checkCount++;
+        const elapsedTime = Date.now() - startTime;
+        
+        // 检测超时
+        if (checkCount > maxCheckCount || elapsedTime > maxWaitTime) {
+          this.logger.log(`🔥 播放状态检测超时 - 检测次数: ${checkCount}, 耗时: ${elapsedTime}ms`);
+          break;
+        }
+        
         // 检测设备播放状态
         let playing: any = { status: "idle" };
         let res = this.playingCommand
@@ -357,23 +391,38 @@ export class BaseSpeaker {
         if (!this.playingCommand) {
           playing = { ...playing, ...res };
         }
+        
+        this.logger.log(`🔥 播放状态检测 #${checkCount} - 状态: ${playing.status}, 设备响应: ${JSON.stringify(res)}, 耗时: ${elapsedTime}ms`);
+        
         if (
           hasNewMsg() ||
           !this.responding || // 有新消息
           (playing.status === "playing" && playing.media_type) // 小爱自己开始播放音乐
         ) {
           // 响应被中断
+          this.logger.log(`🔥 播放被中断 - 有新消息或状态变化`);
           return "break";
         }
         const isOk = retry.onResponse(res);
         if (isOk === "break") {
+          this.logger.log(`🔥 获取设备状态异常 - 退出等待`);
           break; // 获取设备状态异常
         }
         if (res != null && playing.status !== "playing") {
+          this.logger.log(`🔥 播放完成 - 状态变为非播放中`);
           break;
         }
+        
+        // 如果是使用MiNA.getStatus()且状态一直为playing，增加额外判断
+        if (!this.playingCommand && playing.status === "playing" && elapsedTime > 5000) {
+          // 等待超过5秒后，尝试强制退出
+          this.logger.log(`🔥 播放状态检测超时(5秒) - 强制退出等待`);
+          break;
+        }
+        
         await sleep(this.checkInterval);
       }
+      
       // 播放结束提示音
       if (playSFX && this.audioBeep) {
         if (this.debug) {
@@ -384,6 +433,7 @@ export class BaseSpeaker {
       // 保持唤醒状态
       if (keepAlive) {
         await this.wakeUp();
+        this.logger.log(`🔥 保持唤醒状态 - 重新唤醒设备`);
       }
     };
 
@@ -408,6 +458,9 @@ export class BaseSpeaker {
           break;
       }
     }
+    
+    this.logger.log(`🔥 TTS处理完成 - 结果: ${res ? "成功" : "失败"}`);
+    
     return res;
   }
 

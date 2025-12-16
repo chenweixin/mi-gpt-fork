@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { buildPrompt, formatMsg } from "../../utils/string";
 import { DeepPartial } from "../../utils/type";
+import { Logger } from "../../utils/log";
 import { ChatOptions, openai } from "../openai";
 import { AISpeaker } from "../speaker/ai";
 import { QueryMessage, SpeakerAnswer } from "../speaker/speaker";
@@ -160,6 +161,13 @@ export class MyBot {
     const shortTermMemory = shortTermMemories[0]?.text ?? "短期记忆为空";
     const longTermMemories = await memory.getLongTermMemories({ take: 1 });
     const longTermMemory = longTermMemories[0]?.text ?? "长期记忆为空";
+    
+    // 记录关键信息
+    this.speaker.logger.log(`🔥 构建AI请求 - Bot: ${bot!.name}, Master: ${master!.name}`);
+    this.speaker.logger.log(`🔥 短期记忆: ${shortTermMemories.length > 0 ? "有" : "无"}`);
+    this.speaker.logger.log(`🔥 长期记忆: ${longTermMemories.length > 0 ? "有" : "无"}`);
+    this.speaker.logger.log(`🔥 历史消息: ${lastMessages.length} 条`);
+    
     const systemPrompt = buildPrompt(
       this.systemTemplate ?? kDefaultSystemTemplate,
       {
@@ -192,8 +200,11 @@ export class MyBot {
         timestamp: msg.timestamp,
       }),
     });
+    
     // 添加请求消息到 DB
     await this.manager.onMessage(ctx, { ...msg, sender: master! });
+    this.speaker.logger.log(`🔥 用户消息已保存到数据库`);
+    
     const stream = await MyBot.chatWithStreamResponse({
       system: systemPrompt,
       user: userPrompt,
@@ -205,6 +216,7 @@ export class MyBot {
             sender: bot!,
             timestamp: Date.now(),
           });
+          this.speaker.logger.log(`🔥 AI响应已保存到数据库`);
         }
       },
     });
@@ -217,6 +229,8 @@ export class MyBot {
     }
   ) {
     const requestId = randomUUID();
+    Logger.create({ tag: "MyBot" }).log(`🔥 创建流式响应 - 请求ID: ${requestId}`);
+    
     const stream = new StreamResponse({ firstSubmitTimeout: 3 * 1000 });
     openai
       .chatStream({
@@ -225,12 +239,14 @@ export class MyBot {
         trace: true,
         onStream: (text) => {
           if (stream.status === "canceled") {
+            Logger.create({ tag: "MyBot" }).log(`🔥 流式响应被取消 - 请求ID: ${requestId}`);
             return openai.cancel(requestId);
           }
           stream.addResponse(text);
         },
       })
       .then((answer) => {
+        Logger.create({ tag: "MyBot" }).log(`🔥 流式响应结束 - 请求ID: ${requestId}, 答案存在: ${answer ? "是" : "否"}`);
         if (answer) {
           stream.finish(answer);
           options.onFinished?.(answer);

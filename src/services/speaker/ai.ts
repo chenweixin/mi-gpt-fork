@@ -150,6 +150,7 @@ export class AISpeaker extends Speaker {
     }
     // 唤醒
     await super.enterKeepAlive();
+    this.logger.log(`🔥 AI模式已唤醒 - 进入智能对话模式`);
   }
 
   async exitKeepAlive() {
@@ -161,6 +162,7 @@ export class AISpeaker extends Speaker {
       await this.response({ text, keepAlive: false, playSFX: false });
     }
     await this.unWakeUp();
+    this.logger.log(`🔥 AI模式已退出 - 智能对话模式结束`);
   }
 
   get commands() {
@@ -216,16 +218,20 @@ export class AISpeaker extends Speaker {
       const text = pickOne(this.onAIAsking);
       if (text) {
         await this.response({ text, audio: this.audioActive });
+        this.logger.log(`🔥 AI思考中提示: "${text}"`);
       }
     },
     async (msg, data) => {
       // 调用 AI 获取回复
+      this.logger.log(`🔥 调用AI获取回复`);
       let answer = await this.askAI?.(msg);
+      this.logger.log(`🔥 AI回复获取${answer ? "成功" : "失败"}`);
       return { data: { answer } };
     },
     async (msg, data) => {
       // 开始回复
       if (data.answer) {
+        this.logger.log(`🔥 开始播报AI回复`);
         const res = await this.response({ ...data.answer });
         return { data: { ...data, res } };
       }
@@ -241,6 +247,7 @@ export class AISpeaker extends Speaker {
         const text = pickOne(this.onAIReplied);
         if (text) {
           await this.response({ text });
+          this.logger.log(`🔥 AI回复完毕提示: "${text}"`);
         }
       }
     },
@@ -250,6 +257,7 @@ export class AISpeaker extends Speaker {
         const text = pickOne(this.onAIError);
         if (text) {
           await this.response({ text, audio: this.audioError });
+          this.logger.log(`🔥 AI回答异常提示: "${text}"`);
         }
       }
     },
@@ -257,17 +265,20 @@ export class AISpeaker extends Speaker {
       if (this.keepAlive) {
         // 重新唤醒
         await this.wakeUp();
+        this.logger.log(`🔥 连续对话模式 - 重新唤醒设备`);
       }
     },
   ];
 
   async askAIForAnswer(msg: QueryMessage) {
+    this.logger.log(`🔥 开始AI回答处理 - 用户消息: "${msg.text}"`);
     let data: { answer?: SpeakerAnswer } = {};
     const { hasNewMsg } = this.checkIfHasNewMsg(msg);
     for (const action of this._askAIForAnswerSteps) {
       const res = await action(msg, data);
       if (hasNewMsg() || this.status !== "running") {
         // 收到新的用户请求消息，终止后续操作和响应
+        this.logger.log(`🔥 AI回答处理中断 - 检测到新消息或状态变化`);
         return;
       }
       if (res?.data) {
@@ -277,6 +288,7 @@ export class AISpeaker extends Speaker {
         break;
       }
     }
+    this.logger.log(`🔥 AI回答处理完成`);
   }
 }
 

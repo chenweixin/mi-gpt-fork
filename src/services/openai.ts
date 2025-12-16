@@ -118,6 +118,9 @@ class OpenAIClient {
       model = this.deployment ?? kEnvs.OPENAI_MODEL ?? "gpt-4o",
       enableSearch = kEnvs.QWEN_ENABLE_SEARCH,
     } = options;
+    
+    this._logger.log(`🔥 开始流式AI请求 - 请求ID: ${requestId || "无"}, 模型: ${model}`);
+    
     if (trace && this.traceInput) {
       this._logger.log(
         `🔥 onAskAI\n🤖️ System: ${system ?? "None"}\n😊 User: ${user}`.trim()
@@ -126,6 +129,9 @@ class OpenAIClient {
     const systemMsg: ChatCompletionMessageParam[] = isNotEmpty(system)
       ? [{ role: "system", content: system! }]
       : [];
+    
+    this._logger.log(`🔥 发送请求到OpenAI - 工具数量: ${tools?.length || 0}, JSON模式: ${jsonMode ? "是" : "否"}, 搜索功能: ${enableSearch ? "是" : "否"}`);
+    
     const stream = await this._client!.chat.completions.create({
       model,
       tools,
@@ -138,28 +144,38 @@ class OpenAIClient {
       return null;
     });
     if (!stream) {
+      this._logger.error(`🔥 流式请求失败 - 请求ID: ${requestId || "无"}`);
       return;
     }
     if (requestId) {
       this._abortCallbacks[requestId] = () => stream.controller.abort();
     }
+    
+    this._logger.log(`🔥 开始接收流式响应 - 请求ID: ${requestId || "无"}`);
+    
     let content = "";
+    let chunkCount = 0;
     for await (const chunk of stream) {
       const text = chunk.choices[0]?.delta?.content || "";
       const aborted =
         requestId && !Object.keys(this._abortCallbacks).includes(requestId);
       if (aborted) {
+        this._logger.log(`🔥 流式响应被中止 - 请求ID: ${requestId}`);
         content = "";
         break;
       }
       if (text) {
         onStream?.(text);
         content += text;
+        chunkCount++;
       }
     }
     if (requestId) {
       delete this._abortCallbacks[requestId];
     }
+    
+    this._logger.log(`🔥 流式响应完成 - 请求ID: ${requestId || "无"}, 总块数: ${chunkCount}, 总字符数: ${content.length}`);
+    
     if (trace && this.traceOutput) {
       this._logger.log(`✅ Answer: ${content ?? "None"}`.trim());
     }

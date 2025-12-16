@@ -2,8 +2,6 @@ node_modules
 dist
 .DS_Store
 .yarn
-
+.mi.json
 .bot.json
-
-
 *.db*
